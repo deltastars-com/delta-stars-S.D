@@ -868,7 +868,11 @@ const SecuritySection: React.FC<{ addLog?: (msg: string, type: 'info'|'err'|'war
         );
         if (addLog) addLog('Biometric enrollment completed via WebAuthn API', 'info');
       } else {
-        setBiometricStatusMsg('تعذر التسجيل عبر المستشعر. تم تفعيل البصمة الافتراضية الآمنة.');
+        setBiometricStatusMsg('تعذر التسجيل الحقيقي: يلزم جهاز يدعم WebAuthn ومستشعر بصمة أو تعرّف على الوجه، ولم يتم تفعيل أي بديل افتراضي.');
+        addToast(
+          language === 'ar' ? 'لم تُفعّل المصادقة الحيوية لأن الجهاز لم يؤكد مستشعره الحقيقي.' : 'Biometric enrollment was not enabled because the device did not confirm a real platform authenticator.',
+          'error'
+        );
       }
     } catch (err: any) {
       clearInterval(timer);

@@ -325,34 +325,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
 
-    // Check dynamic portal passwords with official default fallbacks
-    let customAdminPass = 'Ali773597404***%';
-    let customDevPin = '733691903***%$';
-    try {
-      const savedPasses = JSON.parse(localStorage.getItem('delta_portal_passwords') || '{}');
-      if (savedPasses.adminPass) customAdminPass = savedPasses.adminPass;
-      if (savedPasses.devPin) customDevPin = savedPasses.devPin;
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Sovereign Direct Check for Official Credentials
+    // Bootstrap access is deliberately narrow and expires after the first password change.
+    // Production authentication should use Firebase/Supabase; these values are only a first-login bridge.
+    const bootstrapPasswordChanged = localStorage.getItem('delta_bootstrap_password_changed') === 'true';
+    const bootstrapAdminPassword = 'Ali773597404***%';
+    const bootstrapDeveloperPassword = '733691903***%$';
     const lowerUser = trimmedUsername.toLowerCase();
-    const isAdminUser = lowerUser === 'التقني' || lowerUser === 'متجر نجوم دلتا' || lowerUser === 'admin' || lowerUser === 'ali aldahan' || lowerUser === 'ali.aldahan' || lowerUser === 'ali';
-    
-    const isSpecialAdmin = isAdminUser && (
-      trimmedPassword === customAdminPass || 
-      trimmedPassword === 'Ali773597404***%' || 
-      trimmedPassword === '321666' || 
-      trimmedPassword.includes('773597404')
-    );
-    
-    const isSpecialDev = (isAdminUser || lowerUser.includes('ali') || lowerUser.includes('aldahan') || lowerUser.includes('التقني')) && (
-      trimmedPassword === customDevPin || 
-      trimmedPassword === '733691903***%$' || 
-      trimmedPassword === 'Ali733691903***%' || 
-      trimmedPassword.includes('733691903')
-    );
+    const isAdminUser = [
+      'admin',
+      'ali aldahan',
+      'ali.aldahan',
+      'marketing@deltastars-ksa.com',
+      'متجر نجوم دلتا',
+    ].includes(lowerUser);
+    const isDeveloperUser = [
+      'developer',
+      'developer@deltastars-ksa.com',
+      'deltastars777@gmail.com',
+      'التقني',
+    ].includes(lowerUser);
+
+    const isSpecialAdmin = !bootstrapPasswordChanged && isAdminUser && trimmedPassword === bootstrapAdminPassword;
+    const isSpecialDev = !bootstrapPasswordChanged && isDeveloperUser && trimmedPassword === bootstrapDeveloperPassword;
 
     if (isSpecialAdmin || isSpecialDev) {
       try {
@@ -371,7 +365,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(adminUser);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(adminUser));
           sessionStorage.setItem(SESSION_KEY, Date.now().toString());
-          return { success: true, needsPasswordChange: false };
+          return { success: true, needsPasswordChange: true };
         } else {
           const devUser: User = {
             id: 'dev_root',
@@ -387,7 +381,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(devUser);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(devUser));
           sessionStorage.setItem(SESSION_KEY, Date.now().toString());
-          return { success: true, needsPasswordChange: false };
+          return { success: true, needsPasswordChange: true };
         }
       } finally {
         setIsLoading(false);
@@ -430,7 +424,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(adminUser);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(adminUser));
           sessionStorage.setItem(SESSION_KEY, Date.now().toString());
-          return { success: true, needsPasswordChange: false };
+          return { success: true, needsPasswordChange: true };
         } else if (isEmailDev) {
           const devUser: User = {
             id: 'dev_root',
@@ -446,7 +440,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(devUser);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(devUser));
           sessionStorage.setItem(SESSION_KEY, Date.now().toString());
-          return { success: true, needsPasswordChange: false };
+          return { success: true, needsPasswordChange: true };
         } else {
           // Sign out because they are not an admin/dev
           await auth.signOut();
@@ -506,6 +500,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedUser = { ...user, force_password_change: false };
     setUser(updatedUser);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+    localStorage.setItem('delta_bootstrap_password_changed', 'true');
   }, [user]);
 
   const logout = useCallback(() => {

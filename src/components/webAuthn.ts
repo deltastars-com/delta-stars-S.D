@@ -1,96 +1,104 @@
 /**
- * Sovereign Biometric Engine v21.0 - Passkey Integration
+ * Delta Stars biometric engine.
+ * Uses the browser WebAuthn platform authenticator only.
+ * No virtual, local-storage-only, or simulated biometric fallback is allowed.
  */
 
 const STORAGE_KEYS = {
-    KEYS: 'delta-sovereign-keys-v21',
-    SYSTEM_VER: 'delta-system-version-v21'
+  KEYS: 'delta-sovereign-keys-v22',
 };
 
-const getKeys = () => {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEYS.KEYS);
-        return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
+const getKeys = (): Record<string, string> => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.KEYS);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+};
+
+const toBase64Url = (bytes: Uint8Array): string =>
+  btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+const fromBase64Url = (value: string): Uint8Array => {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 };
 
 export const isBiometricAvailable = async (): Promise<boolean> => {
-    try {
-        if (!window.PublicKeyCredential) return false;
-        return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    } catch {
-        return false;
-    }
+  try {
+    if (typeof window === 'undefined' || !window.isSecureContext || !window.PublicKeyCredential) return false;
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
 };
 
 export const registerBiometric = async (id: string): Promise<boolean> => {
-    try {
-        if (window.PublicKeyCredential) {
-            try {
-                const challenge = window.crypto.getRandomValues(new Uint8Array(32));
-                const userHandle = window.crypto.getRandomValues(new Uint8Array(16));
+  if (!(await isBiometricAvailable())) return false;
 
-                const options: PublicKeyCredentialCreationOptions = {
-                    challenge,
-                    rp: { name: "Delta Stars Sovereign", id: window.location.hostname },
-                    user: { id: userHandle, name: id, displayName: `Partner ${id}` },
-                    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-                    authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-                    timeout: 5000 // Fast timeout for responsive fallback
-                };
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = crypto.getRandomValues(new Uint8Array(32));
+    const credential = (await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Delta Stars', id: window.location.hostname },
+        user: {
+          id: userId,
+          name: id,
+          displayName: `Delta Stars user ${id}`,
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },
+          { alg: -257, type: 'public-key' },
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          residentKey: 'preferred',
+          userVerification: 'required',
+        },
+        timeout: 60_000,
+        attestation: 'none',
+      },
+    })) as PublicKeyCredential | null;
 
-                const credential = await navigator.credentials.create({ publicKey: options }) as PublicKeyCredential;
-                if (credential) {
-                    const keys = getKeys();
-                    keys[id.toLowerCase()] = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-                    localStorage.setItem(STORAGE_KEYS.KEYS, JSON.stringify(keys));
-                    return true;
-                }
-            } catch (credentialError) {
-                console.warn("🔐 [WebAuthn] Platform credentials blocked/unavailable in this sandbox. Using secure virtual biometric enrollment.", credentialError);
-            }
-        }
+    if (!credential) return false;
 
-        console.warn("🔐 [WebAuthn] Platform biometric hardware required for secure passkey/fingerprint/face recognition verification.");
-        return false;
-    } catch (e) {
-        console.error("Biometric registration failed", e);
-        return false;
-    }
+    const keys = getKeys();
+    keys[id.toLowerCase()] = toBase64Url(new Uint8Array(credential.rawId));
+    localStorage.setItem(STORAGE_KEYS.KEYS, JSON.stringify(keys));
+    return true;
+  } catch (error) {
+    console.warn('[WebAuthn] Real platform enrollment failed or was cancelled.', error);
+    return false;
+  }
 };
 
 export const authenticateBiometric = async (id: string): Promise<boolean> => {
-    const keys = getKeys();
-    const keyId = keys[id.toLowerCase()];
-    if (!keyId) return false;
+  if (!(await isBiometricAvailable())) return false;
 
-    try {
-        if (window.PublicKeyCredential && !keyId.startsWith("virtual_secure_")) {
-            try {
-                const challenge = window.crypto.getRandomValues(new Uint8Array(32));
-                const rawId = Uint8Array.from(atob(keyId), c => c.charCodeAt(0));
+  const keyId = getKeys()[id.toLowerCase()];
+  if (!keyId) return false;
 
-                const options: PublicKeyCredentialRequestOptions = {
-                    challenge,
-                    allowCredentials: [{ id: rawId, type: 'public-key' }],
-                    userVerification: "required",
-                    timeout: 5000
-                };
-
-                const assertion = await navigator.credentials.get({ publicKey: options });
-                if (assertion) return true;
-            } catch (assertionError) {
-                console.warn("🔐 [WebAuthn] Platform assertion blocked/unavailable. Utilizing secure virtual biometric verification.", assertionError);
-            }
-        }
-
-        // Virtual Biometric fallback validation
-        await new Promise(resolve => setTimeout(resolve, 800)); // Simulate face/fingerprint verification delay
-        return true;
-    } catch (e) {
-        console.error("Biometric authentication failed", e);
-        return false;
-    }
+  try {
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [{ id: fromBase64Url(keyId), type: 'public-key' }],
+        userVerification: 'required',
+        timeout: 60_000,
+      },
+    });
+    return Boolean(assertion);
+  } catch (error) {
+    console.warn('[WebAuthn] Real platform authentication failed or was cancelled.', error);
+    return false;
+  }
 };
 
-export const hasRegisteredKey = (id?: string): boolean => id ? !!getKeys()[id.toLowerCase()] : Object.keys(getKeys()).length > 0;
+export const hasRegisteredKey = (id?: string): boolean =>
+  id ? Boolean(getKeys()[id.toLowerCase()]) : Object.keys(getKeys()).length > 0;
