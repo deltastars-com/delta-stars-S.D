@@ -16,11 +16,10 @@ const getKeys = () => {
 
 export const isBiometricAvailable = async (): Promise<boolean> => {
     try {
-        const isAvailable = !!(window.PublicKeyCredential && 
-               await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
-        return isAvailable || true; // Always allow activation, falling back to secure virtual biometrics when sandbox/device restricts it.
+        if (!window.PublicKeyCredential) return false;
+        return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     } catch {
-        return true; 
+        return false;
     }
 };
 
@@ -52,12 +51,8 @@ export const registerBiometric = async (id: string): Promise<boolean> => {
             }
         }
 
-        // Virtual Biometric fallback (secure high-entropy key)
-        await new Promise(resolve => setTimeout(resolve, 800)); // Smooth UX transition delay
-        const keys = getKeys();
-        keys[id.toLowerCase()] = `virtual_secure_biometric_key_${id.toLowerCase()}_${Date.now()}`;
-        localStorage.setItem(STORAGE_KEYS.KEYS, JSON.stringify(keys));
-        return true;
+        console.warn("🔐 [WebAuthn] Platform biometric hardware required for secure passkey/fingerprint/face recognition verification.");
+        return false;
     } catch (e) {
         console.error("Biometric registration failed", e);
         return false;

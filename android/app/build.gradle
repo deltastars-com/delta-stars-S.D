@@ -7,8 +7,8 @@ android {
         applicationId "com.deltastars.store"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 220
-        versionName "2.2"
+        versionCode 221
+        versionName "2.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,21 +16,13 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
-    def releaseKeystorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
-    def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
-    def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
-    def hasReleaseSigning = releaseKeystorePath && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
-
     signingConfigs {
-        if (hasReleaseSigning) {
-            release {
-                storeFile file(releaseKeystorePath)
-                storeType 'JKS'
-                storePassword releaseKeystorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
-            }
+        release {
+            storeFile file('delta-production-key.jks')
+            storeType 'JKS'
+            storePassword 'DeltaStars2026!'
+            keyAlias 'deltastars-key'
+            keyPassword 'DeltaStars2026!'
         }
     }
 
@@ -38,9 +30,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (hasReleaseSigning) {
-                signingConfig signingConfigs.release
-            }
+            signingConfig signingConfigs.release
         }
     }
 }

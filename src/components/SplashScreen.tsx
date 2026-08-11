@@ -157,6 +157,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete, logoPath
             <span className="text-[10px] sm:text-xs text-yellow-400 font-black tracking-widest uppercase font-tajawal text-center px-2">
               شركة نجوم دلتا للتجارة • DELTA STARS CO.
             </span>
+            <span className="text-[9px] text-emerald-300 font-tajawal mt-0.5 text-center px-2">
+              الرياض • جدة • الدمام • مكة المكرمة • المدينة المنورة • القصيم
+            </span>
             <div className="h-[1px] bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent w-48 mt-1" />
           </div>
 
