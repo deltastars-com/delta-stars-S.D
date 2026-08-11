@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+.env
+.env.*
+!.env.example
+android/app/build/
+android/.gradle/
+ios/App/Pods/
+ios/App/.derivedData/
+*.jks
+*.keystore
+signing-private/
+*.log
+.DS_Store
