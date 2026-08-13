@@ -1,8 +1,10 @@
 #═══════════════════════════════════════════════════════════
 #  Delta Stars — بناء Android (APK + AAB) تلقائياً
 #  - يعتمد على pnpm (ملف القفل pnpm-lock.yaml) وليس npm ci
-#  - يوقّع APK/AAB بنفس مفتاح التوقيع الحالي (delta-production-key.jks)
-#    أو بمفتاح من أسرار GitHub (ANDROID_KEYSTORE_BASE64) إن وُجد
+#  - إذا وُجدت أسرار التوقيع: يبني APK + AAB موقّعين رسمياً
+#    (ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD)
+#  - إذا لم توجد: يبني APK موقّع DEBUG — قابل للتثبيت المباشر
+#    على أي جهاز أندرويد (Sideload) مع تسمية واضحة
 #  - يرفع الملفات إلى GitHub Releases عند دفع وسم v*
 #═══════════════════════════════════════════════════════════
 name: 🤖 Build Android (APK + AAB)
@@ -87,55 +89,70 @@ jobs:
           npx cap copy android
 
       - name: 🔐 إعداد مفتاح التوقيع
+        id: signing
+        shell: bash
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/delta-production-key.jks
             echo "✅ تم فك تشفير مفتاح التوقيع من أسرار GitHub"
           elif [ -f android/app/delta-production-key.jks ]; then
-            echo "✅ استخدام مفتاح التوقيع الملتزم في المستودع"
+            echo "✅ مفتاح التوقيع الملتزم في المستودع جاهز"
+          fi
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_PASSWORD" ] && [ -f android/app/delta-production-key.jks ]; then
+            echo "✅ وضع التوقيع: RELEASE (موقّع رسمياً)"
+            echo "mode=release" >> "$GITHUB_OUTPUT"
           else
-            echo "❌ لا يوجد مفتاح توقيع. أضف سر ANDROID_KEYSTORE_BASE64 (base64 لملف keystore)"
-            exit 1
+            echo "⚠️ أسرار التوقيع غير مضبوطة (ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD)"
+            echo "   سيتم بناء APK موقّع DEBUG — قابل للتثبيت المباشر على أي جهاز."
+            echo "   لإصدار موقّع رسمياً (Release APK + AAB) أضف الأسرار من:"
+            echo "   GitHub → Settings → Secrets and variables → Actions"
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
           fi
-          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
-            echo "❌ أضف أسرار ANDROID_KEYSTORE_PASSWORD و ANDROID_KEY_PASSWORD (و ANDROID_KEY_ALIAS اختيارياً)"
-            echo "   من GitHub → Settings → Secrets and variables → Actions"
-            exit 1
-          fi
-          echo "✅ مفتاح التوقيع جاهز (نفس المفتاح = تحديث فوق القديم بلا حذف)"
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      - name: 🔨 Build Release APK + AAB
+      - name: 🔨 Build APK
         working-directory: android
         env:
           DELTA_KEYSTORE_FILE: delta-production-key.jks
           DELTA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           DELTA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'deltastars-key' }}
           DELTA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
         run: |
           chmod +x gradlew
-          ./gradlew clean assembleRelease bundleRelease --no-daemon --stacktrace
+          if [ "$SIGNING_MODE" = "release" ]; then
+            ./gradlew clean assembleRelease bundleRelease --no-daemon --stacktrace
+          else
+            ./gradlew clean assembleDebug --no-daemon --stacktrace
+          fi
 
-      - name: 🔍 Verify signature
+      - name: 🔍 Verify output
         run: |
-          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose "$APK" || echo "⚠️ verify warning"
+          APK=$(find android/app/build/outputs -name "*.apk" | head -1)
           $ANDROID_HOME/build-tools/36.0.0/aapt2 dump badging "$APK" | head -12 || true
+          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose "$APK" || echo "⚠️ apksigner تحذير (متوقع في وضع DEBUG)"
 
       - name: 🏷️ Rename artifacts + checksums
         run: |
           mkdir -p output
           VER=$(grep -oP 'versionName "\K[^"]+' android/app/build.gradle)
-          find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} "output/DeltaStars-v${VER}.apk" \;
-          find android/app/build/outputs/bundle/release -name "*.aab" -exec cp {} "output/DeltaStars-v${VER}.aab" \;
+          MODE=${{ steps.signing.outputs.mode }}
+          if [ "$MODE" = "release" ]; then
+            find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} "output/DeltaStars-v${VER}.apk" \;
+            find android/app/build/outputs/bundle/release -name "*.aab" -exec cp {} "output/DeltaStars-v${VER}.aab" \; 2>/dev/null || true
+          else
+            find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} "output/DeltaStars-v${VER}-debug.apk" \;
+          fi
           cp client/public/privacy-policy.html output/privacy-policy.html
           cp DEPLOYMENT.md output/DEPLOYMENT.md
           cp README_AR.md output/README_AR.md
-          cd output && shasum -a 256 *.apk *.aab > SHA256SUMS-android.txt && cat SHA256SUMS-android.txt
-          ls -lh output/
+          cd output
+          find . -maxdepth 1 \( -name "*.apk" -o -name "*.aab" \) -exec shasum -a 256 {} \; > SHA256SUMS-android.txt
+          cat SHA256SUMS-android.txt
+          ls -lh output/ || ls -lh .
 
       - name: ⬆️ Upload APK
         uses: actions/upload-artifact@v4
@@ -144,12 +161,13 @@ jobs:
           path: output/*.apk
           retention-days: 90
 
-      - name: ⬆️ Upload AAB
+      - name: ⬆️ Upload AAB (release only)
         uses: actions/upload-artifact@v4
         with:
           name: DeltaStars-AAB
           path: output/*.aab
           retention-days: 90
+          if-no-files-found: warn
 
       - name: 📤 GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -168,8 +186,11 @@ jobs:
             ## 🌟 Delta Stars | متجر نجوم دلتا
 
             ### 📥 التنزيلات المباشرة
-            - `DeltaStars-*.apk` — تثبيت مباشر على أندرويد (يتثبّت فوق النسخة القديمة تلقائياً — نفس التوقيع)
+            - `DeltaStars-*.apk` — تثبيت مباشر على أندرويد
             - `DeltaStars-*.aab` — لرفعه على Google Play Console
+
+            ### 🔐 حالة التوقيع
+            ${{ steps.signing.outputs.mode == 'release' && 'موقّع رسمياً (Release) — يتثبّت فوق النسخ القديمة بلا حذف' || 'DEBUG — قابل للتثبيت المباشر (Sideload). لإصدار موقّع رسمياً أضف أسرار ANDROID_KEYSTORE_PASSWORD و ANDROID_KEY_PASSWORD ثم أعد تشغيل البناء' }}
 
             ### 🏪 ملفات المتاجر
             - `privacy-policy.html` — سياسة الخصوصية (متطلب Google Play & App Store)
